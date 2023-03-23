@@ -2,6 +2,7 @@ mod plonk;
 mod tests;
 
 use ark_ed_on_bn254::Fq as F;
+use itertools::izip;
 
 fn main() {
     println!("Hello, world!");
@@ -69,14 +70,190 @@ fn main() {
     //     assert!(a[5] + b[5] == c[5]);
     // }
 
-    use plonk::sample_problem::{gen_witness, is_satisfied_witness};
+    // use plonk::sample_problem::{gen_witness, is_satisfied_witness};
 
     // let (a, b, c) = gen_witness(F::from(1));
 
     // // Uncomment the next line and run
     // // is_satisfied_witness(a, b, c);
 
-    // Reader should investigate why this fails and why the next passes
-    let (a, b, c) = gen_witness(F::from(3));
-    is_satisfied_witness(a, b, c);
+    // // Reader should investigate why this fails and why the next passes
+    // let (a, b, c) = gen_witness(F::from(3));
+    // is_satisfied_witness(a, b, c);
+
+    // In plonk, everything is a polynomial
+
+    // In the previous section we generated our witness. A witness is a valid solution to our constraints.
+    // Where here our constraints are x^3 + x + 5 = 35
+
+    // Next we want to define the actual constraints. They will be defined as a polynomial. Lets start out by
+    // creating a function eval_poly which takes a polynomial and evaluates it at a given point. Take
+    // the polynomial 1 + x + x^2 = y which is defined by this list [1, 1, 1] from lowest degree (ie starting at the 1 * x^0)
+    // to (1 * x^2)
+
+    fn eval_poly(coef: &[F], x: F) -> F {
+        let mut res = vec![];
+        let mut power = F::from(1);
+        for c in coef {
+            res.push(*c * power);
+            power *= x;
+        }
+        res.iter().sum()
+    }
+
+    assert!(eval_poly(&vec![F::from(1), F::from(1), F::from(1)], F::from(2)) == F::from(7));
+    assert!(
+        eval_poly(
+            &vec![F::from(-2), F::from(7), F::from(-5), F::from(1)],
+            F::from(0)
+        ) == F::from(-2)
+    );
+    assert!(
+        eval_poly(
+            &vec![F::from(-2), F::from(7), F::from(-5), F::from(1)],
+            F::from(1)
+        ) == F::from(1)
+    );
+    assert!(
+        eval_poly(
+            &vec![F::from(-2), F::from(7), F::from(-5), F::from(1)],
+            F::from(2)
+        ) == F::from(0)
+    );
+    assert!(
+        eval_poly(
+            &vec![F::from(-2), F::from(7), F::from(-5), F::from(1)],
+            F::from(3)
+        ) == F::from(1)
+    );
+
+    // Okay now it seems out polynomial evaluations are working :)
+    //
+    // Our mul/add constraint is defined by (Q_l_i) * a_i + (Q_r_i) * b_i + (Q_o_i) * c_i + (Q_m_i) * a_i * b_i + Q_c_i = 0
+    // we can use this to check additions and multiplications. Define the constant polynomial.
+
+    fn constaint_polynomial(
+        Q_l_i: F,
+        Q_r_i: F,
+        Q_m_i: F,
+        Q_o_i: F,
+        Q_c_i: F,
+        a_i: F,
+        b_i: F,
+        c_i: F,
+    ) -> bool {
+        Q_l_i * a_i + Q_r_i * b_i + Q_o_i * c_i + Q_m_i * a_i * b_i + Q_c_i == F::from(0)
+    }
+
+    fn validate_native(
+        Q_l: &[F],
+        Q_r: &[F],
+        Q_m: &[F],
+        Q_o: &[F],
+        Q_c: &[F],
+        a: &[F],
+        b: &[F],
+        c: &[F],
+    ) -> bool {
+        for (Q_l_i, Q_r_i, Q_m_i, Q_o_i, Q_c_i, a_i, b_i, c_i) in
+            izip!(Q_l, Q_r, Q_m, Q_o, Q_c, a, b, c)
+        {
+            if constaint_polynomial(*Q_l_i, *Q_r_i, *Q_m_i, *Q_o_i, *Q_c_i, *a_i, *b_i, *c_i)
+                == false
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn test_addition() {
+        // constraints
+        let Q_l = vec![F::from(1)];
+        let Q_r = vec![F::from(1)];
+        let Q_m = vec![F::from(0)];
+        let Q_o = vec![F::from(-1)];
+        let Q_c = vec![F::from(0)];
+
+        // witness
+        let a = vec![F::from(0)];
+        let b = vec![F::from(1)];
+        let c = vec![F::from(1)];
+
+        assert!(validate_native(&Q_l, &Q_r, &Q_m, &Q_o, &Q_c, &a, &b, &c));
+    }
+
+    fn test_mul() {
+        // constraints
+        let Q_l = vec![F::from(0)];
+        let Q_r = vec![F::from(0)];
+        let Q_m = vec![F::from(1)];
+        let Q_o = vec![F::from(-1)];
+        let Q_c = vec![F::from(0)];
+
+        // witness
+        let a = vec![F::from(1)];
+        let b = vec![F::from(1)];
+        let c = vec![F::from(1)];
+
+        assert!(validate_native(&Q_l, &Q_r, &Q_m, &Q_o, &Q_c, &a, &b, &c));
+    }
+
+    fn test_constant() {
+        // constraints
+        let Q_l = vec![F::from(1)];
+        let Q_r = vec![F::from(1)];
+        let Q_m = vec![F::from(0)];
+        let Q_o = vec![F::from(0)];
+        let Q_c = vec![F::from(-10)];
+
+        // witness
+        let a = vec![F::from(10)];
+        let b = vec![F::from(0)];
+        let c = vec![F::from(10)];
+
+        assert!(validate_native(&Q_l, &Q_r, &Q_m, &Q_o, &Q_c, &a, &b, &c));
+    }
+
+    test_addition();
+    test_mul();
+    test_constant();
+
+    // Okay so now we are doing multiplications and additions. We can validate manually  that all of these
+    // are being done correctly. Right so this is working we can make constraints. So lets make all the constraints
+    // for our system. First lets make some helpers that drop the constraints where we need then make sure they
+    // pass the tests.
+
+    use plonk::constraint::{add_add_constraint, add_constant_constraint, add_mul_constraint};
+
+    // Okay now lets add the actual constraints. By setting Q_l, Q_r, Q_m, Q_o and Q_c such that it evaluates to a multiplication
+    // constraint at Q[0] and an addition at Q[2].
+
+    fn gen_constraints() -> (Vec<F>, Vec<F>, Vec<F>, Vec<F>, Vec<F>) {
+        // Prove that I know an X such that X * x * x + x + 5 == 35
+
+        // Init constraints
+        let mut Q_l = vec![];
+        let mut Q_r = vec![];
+        let mut Q_m = vec![];
+        let mut Q_o = vec![];
+        let mut Q_c = vec![];
+
+        // set constraints
+        add_mul_constraint(&mut Q_l, &mut Q_r, &mut Q_m, &mut Q_o, &mut Q_c);
+        add_mul_constraint(&mut Q_l, &mut Q_r, &mut Q_m, &mut Q_o, &mut Q_c);
+        add_add_constraint(&mut Q_l, &mut Q_r, &mut Q_m, &mut Q_o, &mut Q_c);
+        add_constant_constraint(&mut Q_l, &mut Q_r, &mut Q_m, &mut Q_o, &mut Q_c, F::from(5));
+        add_constant_constraint(
+            &mut Q_l,
+            &mut Q_r,
+            &mut Q_m,
+            &mut Q_o,
+            &mut Q_c,
+            F::from(35),
+        );
+        add_add_constraint(&mut Q_l, &mut Q_r, &mut Q_m, &mut Q_o, &mut Q_c);
+
+        (Q_l, Q_r, Q_m, Q_o, Q_c)
+    }
 }

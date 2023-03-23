@@ -267,7 +267,9 @@ dependencies = [
  "ark-ec",
  "ark-ed-on-bn254",
  "ark-ff",
+ "ark-poly",
  "ark-std",
+ "itertools",
 ]
 
 [[package]]
