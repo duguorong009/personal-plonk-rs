@@ -313,4 +313,143 @@ fn main() {
     for (i, val) in witness.iter().enumerate() {
         assert!(*val == polynomial_eval(&witness_y, F::from(i as i128)));
     }
+
+    // The test code below checks that witness_y returns the same results when we use the permutated indexes or
+    // the non permuated version. This means that each value there matches.
+
+    // Okay now lets rearrange it so that the values get swapped when they match
+    use crate::plonk::sample_problem::gen_copy_constraints;
+
+    let (witness_x_a_perm, witness_x_b_perm, witness_x_c_perm, copy_constraints) =
+        gen_copy_constraints();
+
+    for i in 0..a.len() {
+        assert!(
+            polynomial_eval(
+                &witness_y,
+                polynomial_eval(&witness_x_a, F::from(i as i128))
+            ) == polynomial_eval(
+                &witness_y,
+                polynomial_eval(&witness_x_a_perm, F::from(i as i128))
+            )
+        );
+    }
+
+    for i in a.len()..(2 * a.len()) {
+        assert!(
+            polynomial_eval(
+                &witness_y,
+                polynomial_eval(&witness_x_b, F::from(i as i128))
+            ) == polynomial_eval(
+                &witness_y,
+                polynomial_eval(&witness_x_b_perm, F::from(i as i128))
+            )
+        );
+    }
+
+    for i in (2 * a.len())..(3 * a.len()) {
+        assert!(
+            polynomial_eval(
+                &witness_y,
+                polynomial_eval(&witness_x_c, F::from(i as i128))
+            ) == polynomial_eval(
+                &witness_y,
+                polynomial_eval(&witness_x_c_perm, F::from(i as i128))
+            )
+        );
+    }
+
+    // So now we have a way of checking permutations with polynomials. But we still need to check every variable which means we
+    // have not really gained anything. So next we will embed these three polynomials in a third such that we can check batches of
+    // permutations at once.
+
+    // To do this we take a random linear combination of witness_x_1 and witness_y.
+
+    //Then we calculate P(x) where P(0) = 1 and
+
+    // Then we do the same for witness_x_2 calculating P_2(x). Because v1 and v2 are random numbers we know that
+    // P_1(i) == P_2(i) if and only if witness_Y gives the same results when evaluated on witness_x_1(0:i) and witness_x_2(0:i)
+
+    use crate::plonk::copy_constraint::copy_constraint_simple;
+
+    // We have to generate v1 and v2 after a, b and c have been fixed.
+    let v1 = F::from(6263831568402553244_i128); // hash(str(a + b + c))
+    let v2 = F::from(8550125927969859821_i128); // hash(str(c + b + a))
+
+    let eval_domain: Vec<F> = (0..3 * a.len()).map(|i| F::from(i as i128)).collect();
+
+    let (x, y, px_a, rlc) = copy_constraint_simple(
+        &(0..a.len()).map(|i| F::from(i as i128)).collect::<Vec<F>>(),
+        &witness_x_a,
+        &witness_y,
+        v1,
+        v2,
+    );
+
+    let (x, y, px_b, rlc) = copy_constraint_simple(
+        &(a.len()..2 * a.len())
+            .map(|i| F::from(i as i128))
+            .collect::<Vec<F>>(),
+        &witness_x_b,
+        &witness_y,
+        v1,
+        v2,
+    );
+
+    let (x, y, px_c, rlc) = copy_constraint_simple(
+        &(2 * a.len()..3 * a.len())
+            .map(|i| F::from(i as i128))
+            .collect::<Vec<F>>(),
+        &witness_x_c,
+        &witness_y,
+        v1,
+        v2,
+    );
+
+    // calculate permutated polynomial
+    let (x_1, y_1, px_a_prime, rlc_1) = copy_constraint_simple(
+        &(0..a.len()).map(|i| F::from(i as i128)).collect::<Vec<F>>(),
+        &witness_x_a_perm,
+        &witness_y,
+        v1,
+        v2,
+    );
+
+    let (x_1, y_1, px_b_prime, rlc_1) = copy_constraint_simple(
+        &(a.len()..2 * a.len())
+            .map(|i| F::from(i as i128))
+            .collect::<Vec<F>>(),
+        &witness_x_b_perm,
+        &witness_y,
+        v1,
+        v2,
+    );
+
+    let (x_1, y_1, px_c_prime, rlc_1) = copy_constraint_simple(
+        &(2 * a.len()..3 * a.len())
+            .map(|i| F::from(i as i128))
+            .collect::<Vec<F>>(),
+        &witness_x_c_perm,
+        &witness_y,
+        v1,
+        v2,
+    );
+
+    assert!(
+        px_a[px_a.len() - 1] * px_b[px_b.len() - 1] * px_c[px_c.len() - 1]
+            == px_a_prime[px_a_prime.len() - 1]
+                * px_b_prime[px_b_prime.len() - 1]
+                * px_c_prime[px_c_prime.len() - 1]
+    );
+    assert!(px_a[0] == px_a_prime[0]);
+    assert!(px_b[0] == px_b_prime[0]);
+    assert!(px_c[0] == px_c_prime[0]);
+    assert!(px_a[0] == px_b[0]);
+    assert!(px_b[0] == px_c[0]);
+    assert!(px_a[0] == F::from(1));
+
+    // So now we can evaluate many copy constraints by simply checking a single point. But the problem is that the verifier needs to
+    // compute the Px_a ... Px_c_prime. We want to come up with a way so that they don't need to evaluate these instead letting the
+    // prover produce an argument that they have evaluated them correctly and minimize the verifiers work. We will do that in after the
+    // next section. In the next section we will make a quick fft sidetrack cos we need that to make a performant prover.
 }
