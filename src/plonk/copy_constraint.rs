@@ -31,7 +31,7 @@ pub fn find_permutation(copies: &[F], eval_domain: &[F]) -> Vec<F> {
     perm
 }
 
-fn lagrange<F>(x: &[F], w: &[F]) -> Vec<F>
+pub fn lagrange<F>(x: &[F], w: &[F]) -> Vec<F>
 where
     F: Field,
 {

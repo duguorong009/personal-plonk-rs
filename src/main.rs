@@ -452,4 +452,87 @@ fn main() {
     // compute the Px_a ... Px_c_prime. We want to come up with a way so that they don't need to evaluate these instead letting the
     // prover produce an argument that they have evaluated them correctly and minimize the verifiers work. We will do that in after the
     // next section. In the next section we will make a quick fft sidetrack cos we need that to make a performant prover.
+
+    // Part x: FFT
+
+    // So you can see that it takes about 1.5 seconds for 100 points. In reality we will want to make proofs for systems that constain
+    // orders of magnatudes more variables in less than that time. So lets use FFT to speed it up.
+
+    // So this is based upon https://vitalik.ca/general/2019/05/12/fft.html which is good to read before you continue.
+
+    // TODO: possibly break this into a seperate tutorial
+
+    // Firstly fft stands for fast foruier transform. A foruier transform is basically evaluating a polynomial.
+    // There are two ways to represent polynomials
+
+    // 1. Is via coefficients [1, 0, 3] is 1 + x^2 where its represented by coefficients
+    // 2. Is with evaluations calculate the fourier space(evaluation space) values.
+
+    // use crate::plonk::poly::polynomial_eval;
+
+    let poly = vec![F::from(1), F::from(0), F::from(3)];
+    let mut fs = vec![];
+    fs.push(polynomial_eval(&poly, F::from(0)));
+    fs.push(polynomial_eval(&poly, F::from(1)));
+    fs.push(polynomial_eval(&poly, F::from(2)));
+
+    println!("fs: {:?}", fs);
+
+    // Both coefficient space and evaluation space uniquely identify the polynomial as long as it has been evaluated at a few
+    // positions. So what we did by evaluating the polynomial is a fourier transform. It is also possible to do an inverse foruier
+    // transform by basically interpolating the polynomial to find the coefficient form.
+    use crate::plonk::copy_constraint::lagrange;
+
+    let x = vec![F::from(0), F::from(1), F::from(2)];
+    let res = lagrange(&x, &fs);
+    assert!(res == poly);
+
+    // Okay so we have gone to foruier space and back to coefficient space. But why?
+
+    // Well turns out in evaluation space it is easier to do things like multiplicaion and division. So lets do that now. Lets take the polynomial
+    // 1 + 3 * x^2 and multiply it by itself. Lets do it both ways in fourier space and in coordinate space.
+
+    let mut res: Vec<F> = (0..(poly.len().pow(2))).map(|_| F::from(0)).collect();
+    let expected_result = vec![
+        F::from(1),
+        F::from(0),
+        F::from(6),
+        F::from(0),
+        F::from(9),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+    ];
+    for (i, coef1) in poly.iter().enumerate() {
+        for (j, coef2) in poly.iter().enumerate() {
+            res[i + j] += coef1.clone() * coef2.clone();
+        }
+    }
+    assert!(res == expected_result);
+
+    // Okay so this took len(poly) ^ 2 operations. Lets try the fft version now.
+    let poly = vec![F::from(1), F::from(0), F::from(3)];
+    let mut fs = vec![];
+    for i in 0..9 {
+        fs.push(polynomial_eval(&poly, F::from(i as i128)));
+    }
+
+    let fs_res: Vec<F> = fs
+        .iter()
+        .zip(fs.iter())
+        .map(|(x, y)| x.clone() * y.clone())
+        .collect();
+
+    let x: Vec<F> = (0..9).map(|i| F::from(i as i128)).collect();
+    let res = lagrange(&x, &fs_res);
+    // assert!(res == expected_result);  // since we use DensePolynomial of arkworks, it strips the zeros at the end
+
+    // Okay so this tool len(poly)*2 operations to do the multiplicaions. But there is still a problem. Because the transform and inverse
+    // both cost more than the saving in operations we need to find a faster way to do this fourier transform. That is where the fast in
+    // fast fourier transform comes in.
+
+    // Okay so firstly lets evaluate a polynomial over prime feild. You just have to take the result % p.
+
+    use crate::plonk::fft::polynomial_eval_prime;
 }
