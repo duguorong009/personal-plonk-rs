@@ -2,6 +2,7 @@ mod plonk;
 mod tests;
 
 use ark_ed_on_bn254::Fq as F;
+use ark_ff::{BigInteger, BigInteger256, Field, PrimeField};
 use itertools::izip;
 
 fn main() {
@@ -476,7 +477,7 @@ fn main() {
     fs.push(polynomial_eval(&poly, F::from(1)));
     fs.push(polynomial_eval(&poly, F::from(2)));
 
-    println!("fs: {:?}", fs);
+    // println!("fs: {:?}", fs);
 
     // Both coefficient space and evaluation space uniquely identify the polynomial as long as it has been evaluated at a few
     // positions. So what we did by evaluating the polynomial is a fourier transform. It is also possible to do an inverse foruier
@@ -535,4 +536,99 @@ fn main() {
     // Okay so firstly lets evaluate a polynomial over prime feild. You just have to take the result % p.
 
     use crate::plonk::fft::polynomial_eval_prime;
+    // // this evaluations 3 + x**2 at position 0 % 5
+    // assert!(polynomial_eval_prime(&vec![3, 0, 1], 0, 5, 1, 0) == F::from(3));
+    // // this evaluations 3 + x**2 at position 1 % 5
+    // assert!(polynomial_eval_prime(&vec![3, 0, 1], 1, 5, 1, 0) == F::from(4));
+
+    // // this evaluations 3 + x**2 at position 2 % 5
+    // assert!(polynomial_eval_prime(&vec![3, 0, 1], 2, 5, 1, 0) == F::from(2));
+
+    // Every prime feild has something called roots of unity. Which is a number x such that x^n == 1.
+
+    // This evaluation 3 + x^2 at position 1
+    fn roots_of_unity(order: usize) -> Vec<F> {
+        let a = F::from(5);
+        let modulus = <F as PrimeField>::MODULUS;
+        let p: F = F::from_le_bytes_mod_order(&modulus.to_bytes_le());
+
+        let mut res = vec![];
+        for i in 0..order {
+            let exp: BigInteger256 =
+                (F::from(i as i128) * (p - F::from(1)) / F::from(order as i128)).into();
+            res.push(a.pow(exp));
+        }
+        res
+    }
+    let roots_2 = roots_of_unity(2);
+
+    // So lets take these roots and square them see what happens.
+    // assert!(roots_2[0].pow([2]) == roots_2[0]);
+    assert!(roots_2[1].pow([2]) == F::from(1));
+    assert!(roots_2[1].pow([3]) == roots_2[1]);
+    assert!(roots_2[1].pow([4]) == F::from(1));
+
+    // We see that they stay the same. Let's say that we have a polynomial above 3 + x + x^2 + x^3 + x^4. If we want to evaluate it
+    // at a point x^n = 1 where n = 2.
+
+    // Let's say that we want to evaluate this polynomial at two points the native thing to do is to hen we can simply the above equation
+    // because we know that x, x^3 == roots_2[1] and
+
+    // Now, lets use the roots of unity to accelerate the evaluation of the polynomial above.
+
+    // So we can save doing the squaring above because x^2 == x^4 for these roots. That lets us do the evaluation by summing 3 +
+    // roots[0] + roots[0] and 3 + roots[1] + roots[1].
+
+    let modulus = <F as PrimeField>::MODULUS;
+    let p: F = F::from_le_bytes_mod_order(&modulus.to_bytes_le());
+    let eval1 = F::from(3) + roots_2[0] + roots_2[0] + roots_2[0] + roots_2[0];
+    let eval2 = F::from(3) + roots_2[1] + roots_2[0] + roots_2[1] + roots_2[0];
+
+    assert!(
+        polynomial_eval_prime(
+            &[F::from(3), F::from(1), F::from(1), F::from(1), F::from(1)],
+            roots_2[0],
+            p,
+            1,
+            0,
+        ) == eval1
+    );
+    assert!(
+        polynomial_eval_prime(
+            &[F::from(3), F::from(1), F::from(1), F::from(1), F::from(1)],
+            roots_2[1],
+            p,
+            1,
+            0
+        ) == eval2
+    );
+    println!("{}", eval2);
+
+    // So the last part is a bit strange. Since eval2 == 3 even tho roots[1] = a pretty big number. The reason for this is that
+    // roots[0] == -roots[1] read about negative numbers in finite fields https://vitalik.ca/general/2017/11/22/starks_part_2.html
+
+    // So because a negative number squared is a positive number we only have to worry about half the domain for even powers. Check out
+    // the rest of https://vitalik.ca/general/2019/05/12/fft.html to fill in the details.
+
+    // Then write an fft that validates the testcase below
+    use crate::plonk::fft::fft;
+
+    let domain = roots_of_unity(8);
+    let poly = vec![
+        F::from(3),
+        F::from(1),
+        F::from(4),
+        F::from(1),
+        F::from(5),
+        F::from(9),
+        F::from(2),
+        F::from(6),
+    ];
+    let p_x = fft(p, &domain, &poly);
+
+    let mut result = vec![];
+    for x in domain {
+        result.push(polynomial_eval_prime(&poly, x, p, 1, 0));
+    }
+    assert!(p_x == result);
 }
