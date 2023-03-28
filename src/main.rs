@@ -655,4 +655,101 @@ fn main() {
     // to coefficient space.
 
     // TODO: do this better
+
+    // Part x: Division of polynomials
+
+    // Okay, the next thing we need to do is find how to divide polynomials efficiently. We can work out a basic algorithm that does this but
+    // lets do it in fourier space since that will work out as being a bit faster.
+
+    // Take the polynomial 1 + x and square it using fft.
+
+    let poly1 = vec![
+        F::from(1),
+        F::from(1),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+    ];
+    let poly2 = vec![
+        F::from(1),
+        F::from(1),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+    ];
+
+    let domain = roots_of_unity(8);
+
+    let poly1_fs = fft(p, &domain, &poly1);
+    let poly2_fs = fft(p, &domain, &poly2);
+
+    let res: Vec<F> = poly1_fs
+        .iter()
+        .zip(poly2_fs.iter())
+        .map(|(x, y)| *x * *y)
+        .collect();
+    let res = ifft(p, &domain, &res);
+    assert!(
+        res == vec![
+            F::from(1),
+            F::from(2),
+            F::from(1),
+            F::from(0),
+            F::from(0),
+            F::from(0),
+            F::from(0),
+            F::from(0)
+        ]
+    );
+
+    // Good now divide hint: remember to use field.FQ for it the division
+
+    let poly1 = vec![F::from(1), F::from(2), F::from(1), F::from(0)];
+    let poly2 = vec![F::from(1), F::from(1), F::from(0), F::from(0)];
+
+    let domain = roots_of_unity(4);
+
+    let poly1_fs = fft(p, &domain, &poly1);
+    let poly2_fs = fft(p, &domain, &poly2);
+    let res: Vec<F> = poly1_fs
+        .iter()
+        .zip(poly2_fs.iter())
+        .map(|(x, y)| if *y == F::from(0) { *x * *y } else { *x / *y })
+        .collect();
+
+    let res = ifft(p, &domain, &res);
+    assert!(res == vec![F::from(1), F::from(1), F::from(0), F::from(0)]);
+
+    // Okay we can mutiply and divide in fft form which is cool. But what happens when we try and divide a polynomial by one that does not
+    // have a root?
+
+    let poly1 = vec![F::from(1), F::from(1), F::from(1), F::from(0)];
+    let poly2 = vec![F::from(1), F::from(1), F::from(0), F::from(0)];
+
+    let domain = roots_of_unity(8);
+
+    let poly1_fs = fft(p, &domain, &poly1);
+    let poly2_fs = fft(p, &domain, &poly2);
+    let res: Vec<F> = poly1_fs
+        .iter()
+        .zip(poly2_fs.iter())
+        .map(|(x, y)| if *y == F::from(0) { *x * *y } else { *x / *y })
+        .collect();
+
+    let res = ifft(p, &domain, &res);
+    println!("{:?}", res);
+
+    // TODO: find out the meaning of this polynomial
+
+    // Okay so now we are able to quickly divide polynomials using fft what do we want this for?
+
+    // Earlier we had polynomials that the verifier needed to multiply together in order to make sure they matched the data the prover sent.
+    // This work was square in the size of the polynomials which meant that our proof were not succinct. In order to make our proofs succinct
+    // we need to turn the verification into a bunch of polynomial evaluations.
 }
