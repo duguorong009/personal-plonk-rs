@@ -752,4 +752,94 @@ fn main() {
     // Earlier we had polynomials that the verifier needed to multiply together in order to make sure they matched the data the prover sent.
     // This work was square in the size of the polynomials which meant that our proof were not succinct. In order to make our proofs succinct
     // we need to turn the verification into a bunch of polynomial evaluations.
+
+    // Part x: is zero check
+
+    // So we are working with polynomials and we want to be sure that a polynomial equals zero everywhere inside a domain that we care
+    // about. So what we do is make it so that the roots of an equation are equal to zero everywhere we care about.
+
+    // So we have a polynomial f(x) = and we want to prove that it is zero at a bunch of places we care about say (x=1, x=2)
+
+    //This is easy to do all we need to do is come up with a list of places that we care about (1,2,3) and rewrite our polynomial as the product of
+    // z(x) * h(x) == f(x) where z(x) = (x - 1)(x - 2)
+
+    // So we have the polynomial f(x) = x^4 - 10x^3 + 35x^2 - 50x + 24 and we have the polynomial
+    // (x - 2)(x - 3) = x^2 - 5x + 6
+
+    // Use the polynomial division from above to calculate h(x)
+
+    let fx = vec![
+        F::from(24),
+        F::from(-50),
+        F::from(35),
+        F::from(-10),
+        F::from(1),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+    ];
+    let zx = vec![
+        F::from(6),
+        F::from(-5),
+        F::from(1),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+        F::from(0),
+    ];
+
+    let domain = roots_of_unity(8);
+
+    let fx_fs = fft(p, &domain, &fx);
+    let zx_fs = fft(p, &domain, &zx);
+
+    let res: Vec<F> = fx_fs
+        .iter()
+        .zip(zx_fs.iter())
+        .map(|(x, y)| if *y == F::from(0) { *x * *y } else { *x / *y })
+        .collect();
+    let res = ifft(p, &domain, &res);
+
+    // Convert to negative representation
+    let hx: Vec<F> = res
+        .iter()
+        .map(|i| if *i > (p / F::from(2)) { -(p - *i) } else { *i })
+        .collect();
+
+    assert!(
+        hx == vec![
+            F::from(4),
+            F::from(-5),
+            F::from(1),
+            F::from(0),
+            F::from(0),
+            F::from(0),
+            F::from(0),
+            F::from(0)
+        ]
+    );
+    // [4, -5, 1] == (x - 1)(x - 4)
+
+    // todo: for some reason when i divide by x-1 it fails check this out.
+
+    // Okay so now we have a way of checking that a poylnomial == 0 at every point. That we define. Next what we want to do is remove the
+    // requirement for the verifier to multiply two polynomials together and check that the results are equal.
+
+    // So we avoid this by instead of checking the polynomial at every point we check it at a single random point. So the verifier has
+    // polynomial
+
+    // f(x) and h(x) * z(x) so what we do is generate a random number (rand) and evaluate f(x) and h(x), z(x) at rand then we
+    // assert that f(rand) == h(rand) * z(rand)
+
+    let rand = F::from(6201848214169226457_u128); // rand = hash(str(fx))
+    assert!(
+        polynomial_eval_prime(&fx, rand, p, 1, 0)
+            == polynomial_eval_prime(&zx, rand, p, 1, 0)
+                * polynomial_eval_prime(&hx, rand, p, 1, 0)
+    );
+
+    // Turns out that this is the case for the majority of points on fx , zx and hx. Becuase we generate the rand point to evaluate fx we will
+    // only know that after it is created. So an attacker would have to spend a very long time to try and generate a random number that
+    // passes the test. So the the thinking is that this is enough to secure plonk and only check a single point.
 }
