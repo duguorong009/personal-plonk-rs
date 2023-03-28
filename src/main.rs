@@ -631,4 +631,28 @@ fn main() {
         result.push(polynomial_eval_prime(&poly, x, p, 1, 0));
     }
     assert!(p_x == result);
+
+    // And the same for ifft
+    use crate::plonk::fft::ifft;
+
+    let domain = roots_of_unity(8);
+    let poly = vec![
+        F::from(3),
+        F::from(1),
+        F::from(4),
+        F::from(1),
+        F::from(5),
+        F::from(9),
+        F::from(2),
+        F::from(6),
+    ];
+    let p_x = fft(p, &domain, &poly);
+
+    let result = ifft(p, &domain, &p_x);
+    assert!(result == poly);
+
+    // Okay thats fft done. We can do fast evaluations of polynomials. Do multiplicaion and stuff in fourier space and then convert back
+    // to coefficient space.
+
+    // TODO: do this better
 }

@@ -60,3 +60,12 @@ pub fn fft(p: F, domain: &[F], poly: &[F]) -> Vec<F> {
 
     res
 }
+
+pub fn ifft(p: F, domain: &[F], evaluation: &[F]) -> Vec<F> {
+    let mut vals = fft(p, domain, evaluation);
+    vals.reverse();
+    vals.rotate_right(1);
+    vals.iter()
+        .map(|x| *x * F::from(vals.len() as u128).inverse().unwrap())
+        .collect()
+}
