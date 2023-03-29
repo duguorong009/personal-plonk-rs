@@ -983,4 +983,33 @@ fn main() {
 
     assert!(lhs == rhs);
     // TODO: Go a little slower here for the last step. Possibly break it out into calculating a, q, x , z and then do the pairing check.
+
+    // Part x: Putting it all together
+    // Okay lets list the prover work, the verifier work and the setup work
+
+    // Setup
+    // Gate constraint
+    // Copy constraint
+
+    // Prover:
+    // Gate constraints
+    // a, b, c polynomials
+    // copy constraints
+    // polynomial commitment openings
+
+    // Verifier:
+    // TODO: change zx to be the roots of unity version and not the naive (x-1)(x-2) this will make the zx polynoiail small and easy to verifiy.
+
+    // Part x: Bounties
+    // Here are a bunch fo follow on ideas, the bounty is to add another section to this tutorial explaining the following
+
+    //  1. Fix some TODOs
+    //  2. Implement plookup
+    //  3. Implement range proofs for plonk
+    //  4. Implement build programming language on top of this
+    //  5. Explore custom constraints
+    //  6. There are a few security bugs in what we have implemented so far. Can you find them / fix them?
+    //  7. Build semaphore on top of this
+
+    // TODO: Find out about adding bounties or rewards to these tasks.
 }
