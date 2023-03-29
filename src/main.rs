@@ -1,6 +1,9 @@
 mod plonk;
 mod tests;
 
+use std::ops::Neg;
+
+use ark_ec::CurveGroup;
 use ark_ed_on_bn254::Fq as F;
 use ark_ff::{BigInteger, BigInteger256, Field, PrimeField};
 use itertools::izip;
@@ -842,4 +845,142 @@ fn main() {
     // Turns out that this is the case for the majority of points on fx , zx and hx. Becuase we generate the rand point to evaluate fx we will
     // only know that after it is created. So an attacker would have to spend a very long time to try and generate a random number that
     // passes the test. So the the thinking is that this is enough to secure plonk and only check a single point.
+
+    // Part x: Polynomial commitments
+
+    // Okay so now we have succinct verification but these polynomials are really big. Here we will use polynomial commitments so that
+
+    // povers only need to commmit to their polynomials and open them at random points in order to convince a verifier.
+
+    // So we have a polynomial p = [5, 0, 2, 1] which is the same as x^3 + 2x^2 + 0x + 5 and we want to commit to it such that the
+    // commiter can open it at any point and convince a verifier that this is correct opening.
+
+    // So the first thing we are going to do is find a secret point that we will evaluate all our polynomials at. This secret point will be generated
+    // using a trusted setup.
+
+    // So to evaluate a polynomial we need to have a list of points x such that (x, x^2, x^3, x^4, ... x^n)
+
+    // So we can easily evaluate these by taking a point in g_1 and multiplying it by secret_n
+    // for n in range(1,n) where n is the length of the polynomial we want to commit to.
+    use crate::plonk::poly_commit::powers_of_tau;
+    use ark_bn254::{Fr as ScalarField, G1Projective as G1, G2Projective as G2};
+    use ark_ec::Group;
+
+    let poly = vec![F::from(5), F::from(0), F::from(2), F::from(1)];
+    let secret = 1234;
+
+    let (g1, g2) = powers_of_tau(secret, poly.len());
+
+    // assert!(
+    //     g1 == vec![
+    //         (1, 2),
+    //         (
+    //             5240721337203810155063577104887775964429040310352786870634285698927658009894,
+    //             8895618777946819312582035270689922760507554319433213576472857911545059134563
+    //         ),
+    //         (
+    //             6948375176493266981514273412529490307784532661099513628234608095184316458902,
+    //             18216600908385678342586247701838651916221324115124034844476606797464062286560
+    //         ),
+    //         (
+    //             13938208764793520230672803096399331546637544056917425701048277721869383690071,
+    //             17643137528866430994062863932942240127918427471357794446875411188797842000191
+    //         ),
+    //         (
+    //             11205499023060593757170025183462743313595252573361076357571209373922074319500,
+    //             10574276079570991118618272977314811771918167997289361521559698253334912778879
+    //         )
+    //     ]
+    // );
+
+    // Okay so now we need to evaluate our polynomial at this point
+    use crate::plonk::poly_commit::{poly_commit_g1, poly_commit_g2};
+    let p_commit = poly_commit_g1(&poly, &g1);
+    // assert!(p_commit == (12751843803001521458487166996489945844735054316365547347615166726833607096115, 2774159934330533841376375186873158845895081394785984945802820943066298465301))
+
+    // Okay so now we have evaluated our polynomial at a secret point. This we call the polynomial commitment. But how do we evaluate
+    // it at an arbitary point?
+
+    // So we use a subtract and divide trick to do this we say
+    // (p(secret) - a) / (secret - z) = q(secret)
+    // Where a is the result when we evaluate p at z. Two problems present themselves
+    //
+    //  1. Secret is the secret so how can't we evaluate the denominator
+    //  2. We have to ensure that q(x) is a polynomial with no remainder.
+    //
+    // We can easily solve 2 by using the commit and open trick from above. Where we commit to all polynomials and then AFTER that
+    // evaluate it at a single point. This means that if the points match with overwhelming probability the two polynomials are the same.
+
+    // We can solve 1 by doing the evaluationin the exponent of the pairing. So when we did our trusted setup we evaluated g1 which is
+    // the powers of all the x terms in the polynomial. So lets take a look at what we can do with pairings. First, we can do homomorphic
+    // operations
+
+    use ark_bn254::Bn254;
+    use ark_ec::pairing::Pairing;
+
+    let secret_1 = 1232;
+    let secret_2 = 123123;
+    let g_1 = G1::generator() * ScalarField::from(secret_1);
+    let g_2 = G2::generator() * ScalarField::from(secret_2);
+
+    let res = Bn254::pairing(g_1, g_2);
+
+    let g_1 = G1::generator() * ScalarField::from(secret_2);
+    let g_2 = G2::generator() * ScalarField::from(secret_1);
+    // We flip it and it still equals its homomorphic
+    assert!(res == Bn254::pairing(g_1, g_2));
+
+    // Secondly we can encrypt variables such that you don't need to know them to compute with them. So what I can do is take g_2
+    // and share that with someone. Everyone can then calculate g_1 time g_2 but they will never know what secret_2 is.
+    // That is what we need to do here. So during our trusted setup we calculate g_2 which is a g_2 generator times a secret
+    // and once we throw away the secret there is not way to find the secret again.
+
+    // Okay lets evaluate the polynomial `p` at a random x using the polynomial commitment to check it.
+
+    let (g1, g2) = powers_of_tau(1234, poly.len());
+
+    let poly = vec![F::from(5), F::from(0), F::from(2), F::from(1)];
+
+    let p_commit = poly_commit_g1(&poly, &g1);
+
+    // We want to evaluate this where z = 6 so lets evaluate the result of the polynomial at that point.
+
+    // use crate::plonk::fft::polynomial_eval_prime;
+
+    let z = vec![F::from(6)];
+    let z_commit = poly_commit_g2(&z, &g2);
+
+    let a = polynomial_eval_prime(&poly, F::from(6), p, 1, 0);
+    let a = vec![a];
+    let a_commit = poly_commit_g1(&a, &g1);
+
+    // q = p / [-a, 1]
+    // todo use fft division from above to do this
+
+    let q = vec![F::from(48), F::from(8), F::from(1)];
+    let q_commit = poly_commit_g1(&q, &g1);
+
+    // This is the polynomial 0 + x
+    let x = vec![F::from(0), F::from(1)];
+    let x_commit = poly_commit_g2(&x, &g2);
+
+    // Evaluate the polynomials
+    // p - a = q * (x - z)
+
+    let modulus = <F as PrimeField>::MODULUS;
+    let p: F = F::from_le_bytes_mod_order(&modulus.to_bytes_le());
+
+    let lhs: F =
+        polynomial_eval_prime(&poly, z[0], p, 1, 0) - polynomial_eval_prime(&a, z[0], p, 1, 0);
+    let rhs: F = polynomial_eval_prime(&q, z[0], p, 1, 0)
+        * (polynomial_eval_prime(&x, z[0], p, 1, 0) - z[0]);
+    assert!(lhs == rhs);
+
+    // Okay when we evaluate the polynomial it works but lets use the pairing check.
+
+    let lhs = Bn254::pairing(p_commit + a_commit.neg(), G2::generator());
+    let rhs = Bn254::pairing(q_commit, x_commit + z_commit.neg());
+
+    assert!(lhs == rhs);
+    // TODO: Go a little slower here for the last step. Possibly break it out into calculating a, q, x , z and then do the pairing check.
 }
